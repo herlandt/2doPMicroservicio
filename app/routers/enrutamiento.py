@@ -1,5 +1,7 @@
 """CU-42 / CU-43 / CU-44 / CU-45 — motor de enrutamiento (stubs)."""
 import random
+from collections import Counter
+
 from fastapi import APIRouter
 
 from app.schemas.enrutamiento import (
@@ -41,20 +43,23 @@ def riesgo_demora(req: RiesgoDemoraRequest) -> list[TramiteRiesgo]:
     """**STUB** que combina las features de forma simple para dar un nivel."""
     salida: list[TramiteRiesgo] = []
     for t in req.tramites:
-        # Heurística determinista para el stub.
-        score = min(1.0, 0.2 + 0.4 * t.carga_departamento + 0.4 * t.complejidad)
-        if score >= 0.8:
-            nivel = "alto"
-            razones = ["carga alta del departamento", "trámite complejo"]
-        elif score >= 0.5:
-            nivel = "medio"
-            razones = ["carga moderada"]
-        elif score > 0:
-            nivel = "bajo"
-            razones = ["dentro de parámetros normales"]
-        else:
+        # Ausencia real de datos: sin carga ni complejidad no hay base para estimar.
+        if t.carga_departamento == 0 and t.complejidad == 0:
             nivel = "desconocido"
+            score = 0.0
             razones = ["sin datos suficientes"]
+        else:
+            # Heurística determinista para el stub.
+            score = min(1.0, 0.2 + 0.4 * t.carga_departamento + 0.4 * t.complejidad)
+            if score >= 0.8:
+                nivel = "alto"
+                razones = ["carga alta del departamento", "trámite complejo"]
+            elif score >= 0.5:
+                nivel = "medio"
+                razones = ["carga moderada"]
+            else:
+                nivel = "bajo"
+                razones = ["dentro de parámetros normales"]
         salida.append(TramiteRiesgo(
             tramite_id=t.tramite_id,
             prob_superar_sla=round(score, 3),
@@ -73,8 +78,9 @@ def prioridades(req: PrioridadesRequest) -> list[TramitePriorizado]:
     salida: list[TramitePriorizado] = []
     for t in req.tramites:
         base = nivel_score.get(t.riesgo_demora, 0.5)
-        # Prioridad manual 1=alta ... 5=baja → invertir para sumar
-        prio = max(0, (6 - t.prioridad_manual)) / 5.0
+        # I1: prioridad manual mayor = más urgente (backend: 1=baja, 2=media, 3=alta).
+        # NO invertir: un trámite urgente debe puntuar más, no menos.
+        prio = (min(max(t.prioridad_manual, 1), 3) - 1) / 2.0
         score = round(0.7 * base + 0.3 * prio, 3)
         salida.append(TramitePriorizado(
             tramite_id=t.tramite_id,
@@ -98,7 +104,8 @@ def anomalias(req: AnomaliasRequest) -> list[Anomalia]:
 
         # Loop: el mismo nodo aparece más de 2 veces
         nodos = [t.get("nodo", "") for t in transiciones]
-        loops = {n for n in nodos if nodos.count(n) > 2}
+        conteo = Counter(nodos)
+        loops = {n for n, c in conteo.items() if c > 2}
         if loops:
             salida.append(Anomalia(
                 tramite_id=sec.tramite_id,

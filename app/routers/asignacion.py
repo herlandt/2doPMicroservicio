@@ -25,7 +25,14 @@ def asignar_politica(req: AsignacionRequest) -> AsignacionResponse:
             top3=[],
         )
 
-    descripcion = req.descripcion.lower()
+    descripcion = req.descripcion.lower().strip()
+    # Sin descripción no hay nada que clasificar (evita fabricar confianza de la nada).
+    # OJO: con descripción real SÍ devolvemos candidatos aunque no haya match de
+    # keyword — las políticas del stub apenas tienen palabras_clave, así que cortar
+    # por "sin hits" dejaría la sugerencia siempre vacía (rompe el flujo CU-40).
+    if not descripcion:
+        return AsignacionResponse(politica_id="", confianza=0.0, top3=[])
+
     scored: list[tuple[float, Candidato]] = []
     for p in req.politicas_activas:
         score = _score(descripcion, p.palabras_clave, p.nombre)
@@ -33,6 +40,7 @@ def asignar_politica(req: AsignacionRequest) -> AsignacionResponse:
 
     # Ordenar descendente y normalizar a softmax suave para que sumen ≈ 1.
     scored.sort(key=lambda x: x[0], reverse=True)
+
     total = sum(s for s, _ in scored) or 1.0
     normalizado = [
         Candidato(

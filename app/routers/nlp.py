@@ -2,11 +2,15 @@
 import json
 import re
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
+from app.config import settings
 from app.schemas.nlp import CampoSchema, CampoSugerido, VozAFormularioResponse
 
 router = APIRouter(prefix="/nlp", tags=["nlp"])
+
+# Tamaño de bloque para leer el audio en streaming (1 MB).
+_CHUNK_SIZE = 1024 * 1024
 
 
 @router.post("/voz-a-formulario", response_model=VozAFormularioResponse)
@@ -21,9 +25,20 @@ async def voz_a_formulario(
     endpoint usará STT real + un parser por tipo de campo.
     """
     # Consumimos el audio para que el cliente no se quede esperando — en stub
-    # no hacemos nada con él más allá de medir el tamaño.
-    raw = await audio.read()
-    _ = len(raw)
+    # no hacemos nada con él más allá de medir el tamaño. Leemos en bloques
+    # para no cargar todo a memoria y cerramos el upload al terminar.
+    tamano = 0
+    try:
+        while chunk := await audio.read(_CHUNK_SIZE):
+            tamano += len(chunk)
+            if tamano > settings.max_audio_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"El audio excede el máximo permitido ({settings.max_audio_bytes} bytes).",
+                )
+    finally:
+        await audio.close()
+    _ = tamano
 
     try:
         campos: list[CampoSchema] = [CampoSchema(**c) for c in json.loads(schema_campos)]

@@ -18,7 +18,14 @@ class Settings(BaseSettings):
     # Para CPU recomendamos "small"; para demo "tiny" basta.
     whisper_model: str = "tiny"
 
+    # Tamaño máximo permitido para el audio de voz-a-formulario (CU-39).
+    # Si la petición lo excede devolvemos HTTP 413. Default: 25 MB.
+    max_audio_bytes: int = 25 * 1024 * 1024
+
     log_level: str = "INFO"
+
+    # Orígenes permitidos para CORS. Vacío => default seguro en main.py.
+    cors_origins: list[str] = []
 
     # Si está definido, el microservicio valida que las peticiones traigan
     # este JWT compartido con Spring para evitar acceso directo de clientes.
