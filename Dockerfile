@@ -1,13 +1,13 @@
-# Microservicio IA — imagen ligera en modo stub.
-# Cuando se sumen TensorFlow / Whisper, cambiar base a python:3.11 (no slim)
-# o usar tensorflow/tensorflow:2.17.0 y reinstalar fastapi encima.
-FROM python:3.11-slim
+# Microservicio IA — con TensorFlow (clasificador de intención CU-46).
+# Base no-slim: trae las libs de sistema (libgomp, etc.) que necesita TF.
+FROM python:3.11
 
 WORKDIR /app
 
-# Dependencias del sistema mínimas (curl para healthchecks, ffmpeg si se conecta Whisper)
+# curl para healthchecks; libgomp1 lo usa TensorFlow (OpenMP).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

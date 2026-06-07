@@ -7,10 +7,12 @@ pydantic>=2.10,<3.0
 pydantic-settings>=2.7,<3.0
 python-multipart>=0.0.18
 
-# --- Soporte futuro (descomenta cuando se entrenen modelos reales) ---
-# tensorflow==2.17.0
+# --- IA real: clasificador de intención del asistente (CU-46) ---
+# Modelo propio entrenado con TensorFlow (app/ml). CPU-only para el contenedor.
+tensorflow-cpu==2.21.0
+
+# --- Soporte futuro (descomenta cuando se entrenen mas modelos) ---
 # scikit-learn==1.5.2
-# numpy==1.26.4
 # pandas==2.2.3
 # spacy==3.7.5
 # openai-whisper==20240930
