@@ -187,3 +187,65 @@ def responder_asistente(consulta: str, contexto: str = "") -> str:
     if not texto:
         raise RuntimeError("Gemini no devolvió texto")
     return texto
+
+
+# ── Diseño de flujo por prompt (CU-14) ───────────────────────────────────────
+_SISTEMA_FLUJO = (
+    "Eres un modelador de procesos. A partir de la DESCRIPCION en lenguaje natural de un "
+    "proceso/tramite, genera un diagrama de actividad UML con swimlanes. Reglas: usa SOLO los "
+    "departamentos disponibles como swimlanes (campo 'departamento' de cada actividad, con el "
+    "nombre EXACTO de la lista dada); incluye un nodo 'inicio' (primero) y un nodo 'fin' (ultimo); "
+    "cada paso del proceso es un nodo 'actividad' con su departamento responsable; si el texto "
+    "describe pasos SIMULTANEOS usa un 'fork' antes y un 'join' despues, conectando en paralelo "
+    "SOLO esos pasos (el resto va lineal); si hay una condicion (aprobar/rechazar/decidir) usa un "
+    "nodo 'decision' con dos transiciones etiquetadas 'si' y 'no'; si el texto describe volver a un "
+    "paso anterior (reproceso/observacion) usa una transicion 'iterativo' hacia ese nodo; marca "
+    "opcional=true en los pasos que el texto indique como opcionales. Las transiciones referencian "
+    "los nodos por su INDICE (0-based) en el arreglo 'nodos'. No inventes departamentos fuera de la lista."
+)
+
+_SCHEMA_FLUJO = {
+    "type": "object",
+    "properties": {
+        "nodos": {"type": "array", "items": {
+            "type": "object",
+            "properties": {
+                "tipo": {"type": "string", "enum": ["inicio", "actividad", "decision", "fork", "join", "fin"]},
+                "nombre": {"type": "string"},
+                "departamento": {"type": "string"},
+                "opcional": {"type": "boolean"},
+            },
+            "required": ["tipo", "nombre"],
+        }},
+        "transiciones": {"type": "array", "items": {
+            "type": "object",
+            "properties": {
+                "origen": {"type": "integer"},
+                "destino": {"type": "integer"},
+                "tipo": {"type": "string", "enum": ["secuencial", "paralelo", "condicional", "iterativo"]},
+                "etiqueta": {"type": "string"},
+            },
+            "required": ["origen", "destino", "tipo"],
+        }},
+    },
+    "required": ["nodos", "transiciones"],
+}
+
+
+def generar_flujo(prompt: str, departamentos: list[str]) -> dict:
+    """NL → diagrama de actividad (nodos + transiciones). Modelo multimodal con
+    responseSchema: comprende sinónimos, topología mixta y qué pasos van en
+    paralelo. LANZA si Gemini falla → el backend usa su heurística local."""
+    deps = ", ".join(d for d in departamentos if d) or "(ninguno)"
+    texto = f"{_SISTEMA_FLUJO}\n\nDEPARTAMENTOS DISPONIBLES: {deps}\n\nDESCRIPCION DEL PROCESO:\n{prompt}"
+    resp = _post([{"text": texto}], {
+        "responseMimeType": "application/json",
+        "responseSchema": _SCHEMA_FLUJO,
+        "maxOutputTokens": 2048,
+        "temperature": 0.2,
+    })
+    raw = _texto_de(resp)
+    datos = json.loads(raw) if raw.strip() else {}
+    if not datos.get("nodos"):
+        raise RuntimeError("Gemini no devolvió un flujo válido")
+    return datos

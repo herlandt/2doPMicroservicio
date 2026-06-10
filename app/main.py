@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.routers import asignacion, enrutamiento, health, intencion, nlp, reportes
+from app.routers import asignacion, diagrama, enrutamiento, health, intencion, nlp, reportes
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -71,3 +71,4 @@ app.include_router(asignacion.router)
 app.include_router(reportes.router)
 app.include_router(enrutamiento.router)
 app.include_router(intencion.router)
+app.include_router(diagrama.router)
