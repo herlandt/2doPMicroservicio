@@ -181,8 +181,8 @@ def _sugerir(campo: CampoSchema, texto: str) -> CampoSugerido:
             campo=campo.nombre, valor=valor, confianza=conf_ok if valor else conf_no
         )
 
-    # Select: el valor dictado debe coincidir con una de las opciones definidas.
-    if tipo == "select" and campo.opciones:
+    # Select/radio: el valor dictado debe coincidir con una de las opciones definidas.
+    if tipo in ("select", "radio") and campo.opciones:
         elegido = next((o for o in campo.opciones if o and o.lower() in bajo), "")
         return out(elegido, 0.85, 0.25)
 

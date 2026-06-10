@@ -121,7 +121,8 @@ def _schema(campos: list) -> dict:
         opciones = c.get("opciones") or []
         if tipo == "checkbox":
             prop["enum"] = ["true", "false"]
-        elif tipo == "select" and opciones:
+        elif tipo in ("select", "radio") and opciones:
+            # radio = opción única, mismo dominio cerrado que un select.
             prop["enum"] = [str(o) for o in opciones]
         props[nombre] = prop
     return {"type": "object", "properties": props}
