@@ -1,16 +1,28 @@
 """CU-39 — voz a formulario."""
 import json
+import logging
 import re
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
+from app import aws_ai, gemini
 from app.config import settings
 from app.schemas.nlp import CampoSchema, CampoSugerido, VozAFormularioResponse
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/nlp", tags=["nlp"])
 
 # Tamaño de bloque para leer el audio en streaming (1 MB).
 _CHUNK_SIZE = 1024 * 1024
+
+# Texto de respaldo cuando NO hay STT real (AWS off) o cuando Transcribe falla:
+# así el mapeo heurístico local sigue teniendo algo sobre lo que trabajar y la
+# demo nunca se rompe.
+_TEXTO_STUB = (
+    "El nombre del cliente es Juan Perez, su DNI es 12345678, "
+    "la inspeccion es el 15 de marzo de 2026 a las 10 de la mañana."
+)
 
 
 @router.post("/voz-a-formulario", response_model=VozAFormularioResponse)
@@ -20,41 +32,61 @@ async def voz_a_formulario(
 ) -> VozAFormularioResponse:
     """Transcribe el audio y mapea entidades al schema del formulario activo.
 
-    **STUB**: por ahora devuelve un texto fijo y rellena los campos del schema
-    con valores plausibles. Cuando se conecte Whisper + spaCy NER, este
-    endpoint usará STT real + un parser por tipo de campo.
+    Dos modos (config ``AWS_AI_ENABLED``):
+      • **AWS ON**  → Amazon Transcribe (STT real) + Amazon Bedrock (extracción
+        estructurada contra el esquema del formulario).
+      • **AWS OFF** → texto de respaldo + mapeo heurístico local (``_sugerir``).
+
+    En modo AWS, si Transcribe o Bedrock fallan, se degrada al heurístico local
+    para que la demo nunca se rompa.
     """
-    # Consumimos el audio para que el cliente no se quede esperando — en stub
-    # no hacemos nada con él más allá de medir el tamaño. Leemos en bloques
-    # para no cargar todo a memoria y cerramos el upload al terminar.
-    tamano = 0
+    # Leemos el audio completo respetando el límite de tamaño (413 si excede).
+    buffer = bytearray()
     try:
         while chunk := await audio.read(_CHUNK_SIZE):
-            tamano += len(chunk)
-            if tamano > settings.max_audio_bytes:
+            buffer.extend(chunk)
+            if len(buffer) > settings.max_audio_bytes:
                 raise HTTPException(
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                     detail=f"El audio excede el máximo permitido ({settings.max_audio_bytes} bytes).",
                 )
     finally:
         await audio.close()
-    _ = tamano
 
     try:
         campos: list[CampoSchema] = [CampoSchema(**c) for c in json.loads(schema_campos)]
     except (json.JSONDecodeError, TypeError, ValueError):
         campos = []
 
-    # STUB: el audio aún no se transcribe (falta conectar Whisper), así que la
-    # transcripción es fija. PERO el MAPEO a campos sí es real: _sugerir extrae
-    # cada entidad del texto y la coloca en el campo que corresponde por su
-    # nombre/tipo. Eso es lo que cubren los tests (tests/test_nlp.py).
-    texto = (
-        "El nombre del cliente es Juan Perez, su DNI es 12345678, "
-        "la inspeccion es el 15 de marzo de 2026 a las 10 de la mañana."
-    )
+    # ── Dictado según el proveedor (IA_PROVIDER) ──
+    #   gemini → 1 llamada multimodal: audio → (transcripción + campos).
+    #   aws    → Amazon Transcribe (STT) + Bedrock (extracción).
+    #   local / cualquier fallo → texto de respaldo + heurística (_sugerir).
+    texto = _TEXTO_STUB
+    sugerencias: list[CampoSugerido] | None = None
+    prov = (settings.ia_provider or "local").lower()
 
-    sugerencias = [_sugerir(c, texto) for c in campos]
+    if prov == "gemini":
+        try:
+            texto, sugerencias = gemini.extraer_de_audio(
+                bytes(buffer), audio.content_type, [c.model_dump() for c in campos])
+        except Exception as e:  # noqa: BLE001 — degradar a local
+            log.warning("Gemini (dictado) falló, uso heurística local: %s", e)
+            sugerencias = None
+    elif prov == "aws":
+        try:
+            texto = aws_ai.transcribir(bytes(buffer), audio.filename, audio.content_type)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Transcribe falló, uso texto de respaldo: %s", e)
+        try:
+            sugerencias = aws_ai.extraer_campos([c.model_dump() for c in campos], texto)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Bedrock (extracción) falló, uso heurística local: %s", e)
+            sugerencias = None
+
+    if sugerencias is None:
+        sugerencias = [_sugerir(c, texto) for c in campos]
+
     return VozAFormularioResponse(texto_transcrito=texto, campos=sugerencias)
 
 
@@ -133,8 +165,10 @@ def _sugerir(campo: CampoSchema, texto: str) -> CampoSugerido:
     """Mapea el campo del formulario a la entidad del texto dictado según su
     nombre/tipo. Determinista (apto para test). El audio→texto sigue siendo
     stub (falta Whisper); esto resuelve el "rellenar el campo correcto"."""
-    toks = _tokens(campo.nombre)
+    # El nombre técnico Y la etiqueta humana aportan palabras para el matching.
+    toks = _tokens(campo.nombre) | _tokens(campo.etiqueta or "")
     tipo = (campo.tipo or "").lower()
+    bajo = texto.lower()
 
     def has(*kws: str) -> bool:
         return any(k in toks for k in kws)
@@ -143,6 +177,26 @@ def _sugerir(campo: CampoSchema, texto: str) -> CampoSugerido:
         return CampoSugerido(
             campo=campo.nombre, valor=valor, confianza=conf_ok if valor else conf_no
         )
+
+    # Select: el valor dictado debe coincidir con una de las opciones definidas.
+    if tipo == "select" and campo.opciones:
+        elegido = next((o for o in campo.opciones if o and o.lower() in bajo), "")
+        return out(elegido, 0.85, 0.25)
+
+    # Checkbox (sí/no): detecta afirmación o negación explícita en el texto.
+    if tipo == "checkbox":
+        afirm = any(k in bajo for k in (
+            "conforme", "cumple", "aprobado", "completo", "completos",
+            "de acuerdo", "correcto", "sí ", "afirmativo",
+        ))
+        nega = any(k in bajo for k in (
+            "no conforme", "incorrecto", "rechaz", "falta", "incompleto", "negativo",
+        ))
+        if nega:
+            return out("false", 0.7)
+        if afirm:
+            return out("true", 0.7)
+        return out("", 0.0, 0.25)
 
     # Email / correo
     if tipo == "email" or has("email", "correo", "mail"):

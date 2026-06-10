@@ -4,10 +4,12 @@ FROM python:3.11
 
 WORKDIR /app
 
-# curl para healthchecks; libgomp1 lo usa TensorFlow (OpenMP).
+# curl para healthchecks; libgomp1 lo usa TensorFlow (OpenMP); ffmpeg convierte
+# el audio webm del navegador a wav 16k para Gemini (CU-39 dictado por voz).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libgomp1 \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

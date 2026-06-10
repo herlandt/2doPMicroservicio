@@ -108,3 +108,52 @@ def test_respuesta_conserva_el_nombre_del_campo():
     # El 'campo' devuelto debe ser EXACTAMENTE el del schema (para aplicarlo al form).
     r = s("Nombre_Del_Cliente", "se llama Luis Mamani")
     assert r.campo == "Nombre_Del_Cliente"
+
+
+# ── Select / checkbox (CU-39, tipos con opciones / sí-no) ────────────────────
+
+def test_select_coincide_con_una_opcion():
+    r = _sugerir(
+        CampoSchema(
+            nombre="resultado",
+            tipo="select",
+            opciones=["Conforme", "Con observaciones", "No conforme"],
+        ),
+        "tras revisar todo, la solicitud quedó Conforme",
+    )
+    assert r.valor == "Conforme"
+    assert r.confianza >= 0.8
+
+
+def test_select_sin_coincidencia_queda_vacio():
+    r = _sugerir(
+        CampoSchema(nombre="resultado", tipo="select", opciones=["Aprobado", "Rechazado"]),
+        "el cliente trajo sus papeles",
+    )
+    assert r.valor == ""
+    assert r.confianza < 0.5
+
+
+def test_checkbox_afirmativo():
+    r = _sugerir(
+        CampoSchema(nombre="documentos_completos", tipo="checkbox"),
+        "los documentos están completos y conforme a lo exigido",
+    )
+    assert r.valor == "true"
+
+
+def test_checkbox_negativo():
+    r = _sugerir(
+        CampoSchema(nombre="documentos_completos", tipo="checkbox"),
+        "la entrega está incompleta, falta el plano",
+    )
+    assert r.valor == "false"
+
+
+def test_etiqueta_aporta_al_matching():
+    # El nombre técnico es opaco ('campo_1') pero la etiqueta dice 'Correo'.
+    r = _sugerir(
+        CampoSchema(nombre="campo_1", tipo="texto", etiqueta="Correo electrónico"),
+        "escríbele a ana@x.com",
+    )
+    assert r.valor == "ana@x.com"

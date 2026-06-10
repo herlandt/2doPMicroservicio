@@ -17,6 +17,10 @@ tensorflow-cpu==2.21.0
 # spacy==3.7.5
 # openai-whisper==20240930
 
-# --- Integración futura con Mongo / S3 ---
+# --- AWS: Transcribe (STT) + Bedrock (LLM) para CU-39/CU-31 ---
+# Solo se usa si AWS_AI_ENABLED=true; el import es perezoso, así que en local
+# (sin AWS) el microservicio arranca igual aunque boto3 no aporte nada.
+boto3>=1.35,<2.0
+
+# --- Integración futura con Mongo ---
 # pymongo==4.10.1
-# boto3==1.35.49
