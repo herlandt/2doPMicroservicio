@@ -1,6 +1,7 @@
 """Liveness y readiness para que Spring sepa cuándo el microservicio está listo."""
 from fastapi import APIRouter
 
+from app.ml import clasificador, clasificador_politica, enrutamiento_modelos
 from app.schemas.common import HealthResponse, ReadyResponse
 
 router = APIRouter()
@@ -14,20 +15,22 @@ def healthz() -> HealthResponse:
 
 @router.get("/readyz", response_model=ReadyResponse, tags=["health"])
 def readyz() -> ReadyResponse:
-    """Readiness probe — qué modelos están cargados.
+    """Readiness probe — estado real de cada modelo.
 
-    Por ahora todos son stubs, así que reporta 'stub' en cada uno. Cuando se
-    carguen modelos TensorFlow reales, este endpoint dirá 'ready'.
+    'ready' = modelo TensorFlow entrenado en disco; 'heuristico' = funciona con
+    reglas/heurística (aún sin modelo TF); 'stub' = pendiente.
     """
+    enr = "ready" if enrutamiento_modelos.disponible() else "stub"
     return ReadyResponse(
         ready=True,
         models={
-            "clasificador_politica": "stub",
-            "voz_a_formulario": "stub",
-            "ruta_optima": "stub",
-            "riesgo_sla": "stub",
-            "prioridades": "stub",
-            "anomalias": "stub",
+            "clasificador_intencion": "ready" if clasificador.disponible() else "stub",
+            "clasificador_politica": "ready" if clasificador_politica.disponible() else "heuristico",
+            "voz_a_formulario": "heuristico",
+            "ruta_optima": enr,
+            "riesgo_sla": enr,
+            "prioridades": enr,
+            "anomalias": enr,
             "nlp_to_pipeline": "stub",
         },
     )

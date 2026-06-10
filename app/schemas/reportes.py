@@ -13,10 +13,22 @@ class ColumnaReporte(BaseModel):
 
 
 class ReporteNaturalResponse(BaseModel):
-    """El microservicio interpreta y devuelve la consulta como pipeline MongoDB.
-    Spring lo valida (whitelist de colecciones, sin $out/$merge/$function/$accumulator)
-    y lo ejecuta.
+    """Plan de reporte interpretado por el microservicio (NLP).
+
+    El micro interpreta la consulta y devuelve:
+      - ``collection`` + ``pipeline``: consulta MongoDB SEGURA (sin $lookup/$out…)
+        que el backend valida y ejecuta.
+      - ``enriquecer``: qué nombres resolver en el backend vía repositorios
+        (``cliente_nombre`` | ``politica_nombre`` | ``departamento_nombre``) — así
+        evitamos joins frágiles en Mongo y reusamos los repos de Spring.
+      - ``filtros_post``: filtros por NOMBRE que el backend resuelve a ids
+        (p. ej. ``politica_nombre`` → ids) o aplica tras enriquecer.
+      - ``operacion`` / ``agrupar_por``: pistas para la UI (tabla vs gráfico).
     """
     collection: str
     pipeline: list[dict[str, Any]]
-    columnas: list[ColumnaReporte]
+    columnas: list[ColumnaReporte] = []
+    enriquecer: list[str] = []
+    filtros_post: dict[str, str] = {}
+    operacion: str = "listar"          # listar | contar
+    agrupar_por: str | None = None     # estado | politica | departamento
