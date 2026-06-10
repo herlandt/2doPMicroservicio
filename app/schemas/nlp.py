@@ -22,3 +22,7 @@ class CampoSugerido(BaseModel):
 class VozAFormularioResponse(BaseModel):
     texto_transcrito: str
     campos: list[CampoSugerido]
+    # True cuando NO hubo STT real (se usó el texto de respaldo): los consumidores
+    # que adoptan la transcripción como dato del usuario (p.ej. CU-40 asignación
+    # de política) deben ignorarla. El mapeo heurístico de CU-39 sí puede usarla.
+    es_stub: bool = False

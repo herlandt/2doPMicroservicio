@@ -87,7 +87,10 @@ async def voz_a_formulario(
     if sugerencias is None:
         sugerencias = [_sugerir(c, texto) for c in campos]
 
-    return VozAFormularioResponse(texto_transcrito=texto, campos=sugerencias)
+    # es_stub: si el texto sigue siendo el de respaldo, NO hubo STT real — los
+    # consumidores que usan la transcripción como dato del usuario deben ignorarla.
+    return VozAFormularioResponse(
+        texto_transcrito=texto, campos=sugerencias, es_stub=(texto is _TEXTO_STUB))
 
 
 # ── Extracción de entidades (heurística determinista del stub) ───────────────
